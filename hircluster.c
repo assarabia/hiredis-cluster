@@ -38,6 +38,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <arpa/inet.h>
 
 #include "adlist.h"
 #include "command.h"
@@ -1282,6 +1283,25 @@ static int clusterUpdateRouteHandleReply(redisClusterContext *cc,
     }
 }
 
+static void redisOptionsSetSrcAddr(redisOptions *options, const char *dst_ip, const char *src_ip) {
+    struct in_addr inaddr;
+    struct in6_addr in6addr;
+    int src_family = 0, dst_family = 0;
+
+    if (inet_pton (AF_INET, dst_ip, &inaddr) == 1)
+      dst_family = AF_INET;
+    else if (inet_pton (AF_INET6, dst_ip, &in6addr) == 1)
+      dst_family = AF_INET6;
+
+    if (inet_pton (AF_INET, src_ip, &inaddr) == 1)
+      src_family = AF_INET;
+    else if (inet_pton (AF_INET6, src_ip, &in6addr) == 1)
+      src_family = AF_INET6;
+
+    if (src_family == dst_family)
+      options.endpoint.tcp.source_addr = src_ip;
+}
+
 /**
  * Update route with the "cluster nodes" or "cluster slots" command reply.
  */
@@ -1302,6 +1322,8 @@ static int cluster_update_route_by_addr(redisClusterContext *cc, const char *ip,
     REDIS_OPTIONS_SET_TCP(&options, ip, port);
     options.connect_timeout = cc->connect_timeout;
     options.command_timeout = cc->command_timeout;
+    if (cc->source_addr)
+      redisOptionsSetSrcAddr(&options, ip, cc->source_addr);
 
     c = redisConnectWithOptions(&options);
     if (c == NULL) {
@@ -1536,6 +1558,11 @@ void redisClusterFree(redisClusterContext *cc) {
     if (cc->password != NULL) {
         hi_free(cc->password);
         cc->password = NULL;
+    }
+
+    if (cc->source_addr != NULL) {
+        hi_free(cc->source_addr);
+        cc->source_addr = NULL;
     }
 
     hi_free(cc);
@@ -1821,6 +1848,31 @@ int redisClusterSetOptionPassword(redisClusterContext *cc,
     return REDIS_OK;
 }
 
+/**
+ * Configure a source address for cluster communication.
+ */
+int redisClusterSetOptionSourceaddr(redisClusterContext *cc,
+                                    const char *source_addr) {
+    if (cc == NULL) {
+        return REDIS_ERR;
+    }
+
+    // Disabling option
+    if (source_addr == NULL || source_addr[0] == '\0') {
+        hi_free(cc->source_addr);
+        cc->source_addr = NULL;
+        return REDIS_OK;
+    }
+
+    hi_free(cc->source_addr);
+    cc->source_addr = hi_strdup(source_addr);
+    if (cc->source_addr == NULL) {
+        return REDIS_ERR;
+    }
+
+    return REDIS_OK;
+}
+
 int redisClusterSetOptionParseSlaves(redisClusterContext *cc) {
 
     if (cc == NULL) {
@@ -1988,6 +2040,8 @@ redisContext *ctx_get_by_node(redisClusterContext *cc, redisClusterNode *node) {
     REDIS_OPTIONS_SET_TCP(&options, node->host, node->port);
     options.connect_timeout = cc->connect_timeout;
     options.command_timeout = cc->command_timeout;
+    if (cc->source_addr)
+      redisOptionsSetSrcAddr(&options, ip, cc->source_addr);
 
     c = redisConnectWithOptions(&options);
     if (c == NULL) {
@@ -3665,6 +3719,9 @@ redisAsyncContext *actx_get_by_node(redisClusterAsyncContext *acc,
     options.command_timeout = acc->cc->command_timeout;
 
     node->lastConnectionAttempt = hi_usec_now();
+
+    if (acc->cc->source_addr)
+      redisOptionsSetSrcAddr(&options, ip, acc->cc->source_addr);
 
     ac = redisAsyncConnectWithOptions(&options);
     if (ac == NULL) {

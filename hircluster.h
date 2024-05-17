@@ -138,6 +138,8 @@ typedef struct redisClusterContext {
     int retry_count;       /* Current number of failing attempts */
     int need_update_route; /* Indicator for redisClusterReset() (Pipel.) */
 
+    char *source_addr; /* Source address */
+
     void *ssl; /* Pointer to a redisSSLContext when using SSL/TLS. */
     sslInitFn *ssl_init_fn; /* Func ptr for SSL context initiation */
 
@@ -203,6 +205,8 @@ int redisClusterSetOptionUsername(redisClusterContext *cc,
                                   const char *username);
 int redisClusterSetOptionPassword(redisClusterContext *cc,
                                   const char *password);
+int redisClusterSetOptionSourceaddr(redisClusterContext *cc,
+                                    const char *source_addr);
 int redisClusterSetOptionParseSlaves(redisClusterContext *cc);
 int redisClusterSetOptionParseOpenSlots(redisClusterContext *cc);
 int redisClusterSetOptionRouteUseSlots(redisClusterContext *cc);
